@@ -1,65 +1,44 @@
-name: Windows RDP Access
+name: Windows RDP via Tailscale
 
 on:
   workflow_dispatch:
+    inputs:
+      authkey:
+        description: 'Tailscale Auth Key'
+        required: true
+        type: string
 
 jobs:
-  build:
+  rdp:
     runs-on: windows-latest
     
     steps:
-    - name: Checkout
-      uses: actions/checkout@v3
-    
     - name: Setup RDP
       run: |
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
         Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
-        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "ActionRunner2024!" -Force)
+        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "Runner2024!" -Force)
     
-    - name: Install Cloudflared
+    - name: Install Tailscale
       run: |
-        Invoke-WebRequest -Uri https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe -OutFile cloudflared.exe
+        Invoke-WebRequest -Uri https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi -OutFile tailscale.msi
+        Start-Process msiexec.exe -ArgumentList '/i', 'tailscale.msi', '/quiet' -Wait
     
-    - name: Start Tunnel
+    - name: Connect Tailscale
       run: |
-        Start-Process -FilePath ".\cloudflared.exe" -ArgumentList "tunnel --url tcp://localhost:3389" -NoNewWindow
-        Start-Sleep -Seconds 5
+        & "C:\Program Files\Tailscale\tailscale.exe" up --authkey=${{ github.event.inputs.authkey }} --hostname=github-runner
     
-    - name: Get Tunnel Info
+    - name: Show Connection Info
       run: |
-        $logFile = Get-ChildItem -Path $env:USERPROFILE\.cloudflared -Filter "*.log" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if ($logFile) {
-          $content = Get-Content $logFile.FullName -Tail 50
-          $url = $content | Select-String -Pattern "https://.*\.trycloudflare\.com" | Select-Object -First 1
-          if ($url) {
-            Write-Host "========================================="
-            Write-Host "RDP BAĞLANTI BİLGİLERİ:"
-            Write-Host "========================================="
-            Write-Host "URL: $($url.Matches[0].Value)"
-            Write-Host "Kullanıcı: runneradmin"
-            Write-Host "Şifre: ActionRunner2024!"
-            Write-Host "========================================="
-            Write-Host "NOT: URL'yi kopyalayın ve tarayıcınızda açın"
-            Write-Host "========================================="
-          }
-        }
-    
-    - name: Alternative Connection Method
-      run: |
-        Write-Host "`n`nALTERNATİF BAĞLANTI YÖNTEMİ:"
-        Write-Host "Eğer yukarıdaki URL çalışmazsa:"
-        Write-Host "1. https://trycloudflare.com adresine gidin"
-        Write-Host "2. Quick Tunnel oluşturun"
-        Write-Host "3. localhost:3389 portunu yönlendirin"
+        $ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+        Write-Host "========================================="
+        Write-Host "RDP BAĞLANTI BİLGİLERİ:"
+        Write-Host "========================================="
+        Write-Host "Tailscale IP: $ip"
+        Write-Host "Port: 3389"
+        Write-Host "Kullanıcı: runneradmin"
+        Write-Host "Şifre: Runner2024!"
+        Write-Host "========================================="
     
     - name: Keep Alive
-      run: |
-        Write-Host "`nSistem 6 saat boyunca açık kalacak..."
-        Write-Host "RDP bağlantısı hazır!"
-        $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-        while ($stopwatch.Elapsed.TotalHours -lt 6) {
-          Write-Host "Çalışma süresi: $([math]::Round($stopwatch.Elapsed.TotalMinutes)) dakika"
-          Start-Sleep -Seconds 300
-        }
+      run: Start-Sleep -Seconds 21600
