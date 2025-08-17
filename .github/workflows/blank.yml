@@ -1,4 +1,4 @@
-name: Windows RDP Access
+name: Windows RDP with Ngrok
 
 on:
   workflow_dispatch:
@@ -8,9 +8,6 @@ jobs:
     runs-on: windows-latest
     
     steps:
-    - name: Checkout
-      uses: actions/checkout@v3
-    
     - name: Setup RDP
       run: |
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
@@ -18,49 +15,37 @@ jobs:
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
         Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "ActionRunner2024!" -Force)
     
-    - name: Create Tunnel 
+    - name: Download Ngrok
       run: |
-        Invoke-WebRequest -Uri https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe -OutFile cloudflared.exe
-        Start-Process Powershell -ArgumentList '-Noexit -Command ".\cloudflared.exe tunnel --url tcp://localhost:3389"'
+        Invoke-WebRequest https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip -OutFile ngrok.zip
+        Expand-Archive ngrok.zip
+    
+    - name: Start Ngrok Tunnel
+      run: |
+        Start-Process Powershell -ArgumentList '-Noexit -Command ".\ngrok\ngrok.exe tcp --region=eu 3389"'
         Start-Sleep -Seconds 10
     
-    - name: Get Tunnel URL
+    - name: Get Ngrok URL
       run: |
-        $response = try { Invoke-RestMethod -Uri http://localhost:8080/metrics } catch { $null }
-        if ($response) {
-          Write-Host "Tunnel URL: Check cloudflared output"
-        }
+        $response = Invoke-WebRequest -Uri http://localhost:4040/api/tunnels
+        $json = $response | ConvertFrom-Json
+        $tunnel = $json.tunnels[0].public_url
         
         Write-Host "========================================="
         Write-Host "RDP BAĞLANTI BİLGİLERİ:"
         Write-Host "========================================="
-        Write-Host "Cloudflared çıktısını kontrol edin"
-        Write-Host "URL formatı: https://xxxxx.trycloudflare.com"
-        Write-Host ""
+        Write-Host "Adres: $tunnel"
         Write-Host "Kullanıcı: runneradmin"
         Write-Host "Şifre: ActionRunner2024!"
         Write-Host "========================================="
         Write-Host ""
-        Write-Host "BAĞLANTI TALİMATLARI:"
-        Write-Host "1. Actions log'unda cloudflared çıktısını bulun"
-        Write-Host "2. 'https://xxxxx.trycloudflare.com' şeklinde bir URL göreceksiniz"
-        Write-Host "3. Bu URL'yi RDP client'ta kullanın"
+        Write-Host "NASIL BAĞLANILIR:"
+        Write-Host "1. Windows: mstsc.exe açın"
+        Write-Host "2. Bilgisayar: $($tunnel -replace 'tcp://', '')"
+        Write-Host "3. Kullanıcı adı ve şifreyi girin"
         Write-Host "========================================="
-    
-    - name: Alternative - Direct IP Method
-      run: |
-        Write-Host ""
-        Write-Host "ALTERNATİF YÖNTEM - Public IP:"
-        $ip = (Invoke-WebRequest -uri "http://ifconfig.me/ip").Content
-        Write-Host "Public IP: $ip:3389"
-        Write-Host "(Not: Bu IP direkt çalışmayabilir, firewall nedeniyle)"
     
     - name: Keep Alive
       run: |
-        Write-Host ""
-        Write-Host "Sistem 6 saat boyunca açık kalacak..."
-        $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-        while ($stopwatch.Elapsed.TotalHours -lt 6) {
-          Write-Host "Aktif süre: $([math]::Round($stopwatch.Elapsed.TotalMinutes)) dakika - $(Get-Date -Format 'HH:mm:ss')"
-          Start-Sleep -Seconds 300
-        }
+        Write-Host "RDP bağlantısı hazır! 6 saat boyunca aktif kalacak..."
+        Start-Sleep -Seconds 21600
